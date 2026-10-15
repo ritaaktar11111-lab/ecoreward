@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e4d45">
+<title>EcoReward</title>
+<style>
+:root{--ink:#12231f;--paper:#f3f6f2;--card:#fff;--green:#0e4d45;--mint:#cfe8df;--gold:#f2a900;--line:#d6e0da;--bad:#b5321b;--muted:#53645f;--on:#fff}
+@media(prefers-color-scheme:dark){:root{--ink:#e8f0ec;--paper:#0c1a17;--card:#13262a;--green:#58c4a8;--mint:#1d4a45;--line:#254039;--bad:#ff8a72;--muted:#9bb0a9;--on:#0c1a17}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:16px/1.5 "Segoe UI","Noto Sans Bengali",system-ui,sans-serif;background:var(--paper);color:var(--ink);display:flex;flex-direction:column;max-width:520px;margin:0 auto}
+header{padding:calc(14px + env(safe-area-inset-top,0px)) 20px 12px;display:flex;justify-content:space-between;align-items:center;background:var(--green);color:var(--on)}
+header h1{margin:0;font-size:1.25rem;letter-spacing:-.02em}
+.bal{text-align:right;font-size:.85rem;line-height:1.2}.bal b{font-size:1.25rem;display:block}
+main{flex:1;overflow-y:auto;padding:20px}
+h2{font-size:1.15rem;margin:0 0 4px;letter-spacing:-.01em}
+p{margin:0 0 12px}.muted{color:var(--muted);font-size:.9rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.gauge{display:flex;gap:20px;align-items:center}
+.gauge svg{width:84px;flex:none}
+.liq{transition:transform .7s ease}
+button,select,input{font:inherit;color:inherit}
+.btn{width:100%;padding:13px;border:0;border-radius:10px;background:var(--green);color:var(--on);font-weight:700;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+select,input[type=tel]{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--card);margin-bottom:12px}
+label{display:block;font-weight:600;margin-bottom:4px;font-size:.9rem}
+.log{list-style:none;padding:0;margin:12px 0 0;min-height:96px}
+.log li{padding:4px 0;border-bottom:1px dashed var(--line);font-size:.92rem}
+.log .bad{color:var(--bad);font-weight:600}
+.opt{display:flex;gap:10px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer;background:var(--card)}
+.opt input{accent-color:var(--green)}
+.opt span:last-child{margin-left:auto;font-weight:700}
+.opt.off{opacity:.5}
+.msg{padding:12px;border-radius:10px;background:var(--mint);margin-top:12px;font-weight:600}
+.msg.err{background:transparent;border:1px solid var(--bad);color:var(--bad)}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.stats .card{margin:0}.stats b{font-size:1.5rem;display:block}
+.row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:.92rem}
+.link{background:none;border:0;color:var(--bad);text-decoration:underline;cursor:pointer;padding:8px 0}
+nav{display:flex;border-top:1px solid var(--line);background:var(--card);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{flex:1;padding:14px 4px;border:0;background:none;font-weight:600;color:var(--muted);cursor:pointer;border-top:3px solid transparent}
+nav button[aria-current=page]{color:var(--green);border-top-color:var(--gold)}
+@media(prefers-reduced-motion:reduce){.liq{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>EcoReward</h1>
+  <div class="bal"><span>Your points</span><b id="pts">0</b></div>
+</header>
+<main id="view"></main>
+<nav aria-label="Main">
+  <button data-t="recycle">Recycle</button>
+  <button data-t="rewards">Rewards</button>
+  <button data-t="history">My impact</button>
+</nav>
+
+<script>
+const BRANDS=["Pran","Mojo","Coca-Cola","Pepsi","7UP","Aquafina"];
+const PTS_PER_BOTTLE=10, GRAMS_PER_BOTTLE=20;
+const REWARDS=[
+ {id:"bkash",name:"bKash cash (৳10)",cost:100,mfs:true},
+ {id:"nagad",name:"Nagad cash (৳10)",cost:100,mfs:true},
+ {id:"rocket",name:"Rocket cash (৳10)",cost:100,mfs:true},
+ {id:"metro",name:"Metro rail fare discount",cost:150},
+ {id:"daraz",name:"Daraz coupon",cost:200},
+ {id:"aarong",name:"Aarong coupon",cost:200},
+ {id:"shajgoj",name:"Shajgoj coupon",cost:200}
+];
+let S={pts:0,bottles:0,hist:[]}, tab="recycle", log=[], busy=false, flash=null;
+try{const d=JSON.parse(localStorage.getItem("ecoreward")||"null");if(d)S=d}catch(e){}
+const save=()=>{try{localStorage.setItem("ecoreward",JSON.stringify(S))}catch(e){}};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const $=id=>document.getElementById(id);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const now=()=>new Date().toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+
+function bottle(p){
+  const y=148*(1-p);
+  return `<svg viewBox="0 0 80 160" role="img" aria-label="Bottle filled ${Math.round(p*100)} percent toward the next ৳10 reward">
+  <defs><clipPath id="c"><path d="M30 6h20v14l8 14v112a8 8 0 0 1-8 8H30a8 8 0 0 1-8-8V34l8-14z"/></clipPath></defs>
+  <g clip-path="url(#c)"><rect width="80" height="160" fill="var(--mint)"/>
+  <rect id="liq" class="liq" y="6" width="80" height="148" fill="var(--gold)" style="transform:translateY(${y}px)"/></g>
+  <path d="M30 6h20v14l8 14v112a8 8 0 0 1-8 8H30a8 8 0 0 1-8-8V34l8-14z" fill="none" stroke="var(--green)" stroke-width="3"/></svg>`;
+}
+function head(){$("pts").textContent=S.pts}
+
+function render(){
+  head();
+  document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-current",b.dataset.t===tab?"page":"false"));
+  const v=$("view");
+  if(tab==="recycle"){
+    const p=(S.pts%100)/100;
+    v.innerHTML=`<div class="card gauge">${bottle(p)}<div>
+      <h2>${100-(S.pts%100)} points to your next ৳10</h2>
+      <p class="muted">Each accepted bottle gives ${PTS_PER_BOTTLE} points. This screen simulates the Reverse Vending Machine at TSC.</p></div></div>
+    <div class="card"><label for="brand">Bottle brand</label>
+    <select id="brand">${BRANDS.map(b=>`<option>${b}</option>`).join("")}</select>
+    <button class="btn" id="go" ${busy?"disabled":""}>Insert bottle</button>
+    <ul class="log" id="log" aria-live="polite">${log.map(l=>`<li class="${l.bad?"bad":""}">${esc(l.t)}</li>`).join("")}</ul></div>`;
+    $("go").onclick=insert;
+  }else if(tab==="rewards"){
+    v.innerHTML=`<h2>Redeem your points</h2><p class="muted">Demo only: no real money moves. In the full system this would call the MFS provider.</p>
+    <div id="opts">${REWARDS.map(r=>`<label class="opt ${S.pts<r.cost?"off":""}"><input type="radio" name="rw" value="${r.id}" ${S.pts<r.cost?"disabled":""}><span>${r.name}</span><span>${r.cost} pts</span></label>`).join("")}</div>
+    <div id="phoneWrap" hidden><label for="phone">Mobile number</label><input id="phone" type="tel" inputmode="numeric" placeholder="01XXXXXXXXX" maxlength="11"></div>
+    <button class="btn" id="redeem">Redeem</button>
+    ${flash?`<div class="msg ${flash.err?"err":""}" role="status">${esc(flash.t)}</div>`:""}`;
+    v.querySelectorAll("input[name=rw]").forEach(i=>i.onchange=()=>{$("phoneWrap").hidden=!REWARDS.find(r=>r.id===i.value).mfs});
+    $("redeem").onclick=redeem;
+  }else{
+    const g=S.bottles*GRAMS_PER_BOTTLE;
+    v.innerHTML=`<div class="stats"><div class="card"><b>${S.bottles}</b><span class="muted">bottles recycled</span></div>
+    <div class="card"><b>${g>=1000?(g/1000).toFixed(2)+" kg":g+" g"}</b><span class="muted">plastic kept out of drains*</span></div></div>
+    <div class="card"><h2>Activity</h2>${S.hist.length?S.hist.map(h=>`<div class="row"><span>${esc(h.t)}</span><span class="muted">${esc(h.d)}</span></div>`).join(""):'<p class="muted">Nothing yet. Insert your first bottle on the Recycle tab.</p>'}</div>
+    <p class="muted">*Estimate of ${GRAMS_PER_BOTTLE} g per bottle.</p>
+    <button class="link" id="reset">Clear all demo data</button>`;
+    $("reset").onclick=()=>{if(confirm("Clear all points and history?")){S={pts:0,bottles:0,hist:[]};log=[];flash=null;save();render()}};
+  }
+}
+
+async function insert(){
+  if(busy)return; busy=true; log=[]; $("go").disabled=true;
+  const brand=$("brand").value, fail=Math.random()<0.12;
+  const steps=["Infrared sensor: bottle detected","Barcode scanner: "+brand+" verified","Load cell: checking weight…"];
+  const add=async(t,bad)=>{log.push({t,bad});$("log").innerHTML=log.map(l=>`<li class="${l.bad?"bad":""}">${esc(l.t)}</li>`).join("");await sleep(650)};
+  for(const s of steps)await add(s);
+  if(fail){await add("Bottle rejected: it still has liquid inside. Empty it and try again.",true);busy=false;$("go").disabled=false;return}
+  await add("Load cell: weight in range");
+  await add("Compactor: bottle stored");
+  S.pts+=PTS_PER_BOTTLE;S.bottles++;S.hist.unshift({t:brand+" bottle  +"+PTS_PER_BOTTLE+" pts",d:now()});
+  S.hist=S.hist.slice(0,50);save();head();
+  await add("+"+PTS_PER_BOTTLE+" points added");
+  busy=false;render();
+}
+
+function redeem(){
+  const sel=document.querySelector("input[name=rw]:checked");
+  if(!sel){flash={err:1,t:"Choose a reward first."};return render()}
+  const r=REWARDS.find(x=>x.id===sel.value);
+  let ph="";
+  if(r.mfs){ph=$("phone").value.trim();if(!/^01\d{9}$/.test(ph)){flash={err:1,t:"Enter an 11-digit mobile number starting with 01."};return render()}}
+  if(S.pts<r.cost){flash={err:1,t:"Not enough points yet."};return render()}
+  S.pts-=r.cost;S.hist.unshift({t:"Redeemed: "+r.name+"  −"+r.cost+" pts",d:now()});save();
+  flash={t:r.mfs?"Done. ৳10 would be sent to "+ph.slice(0,3)+"****"+ph.slice(-3)+" (demo).":"Done. Your "+r.name+" would appear in the app (demo)."};
+  render();
+}
+
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;flash=null;render()});
+render();
+</script>
+</body>
+</html>
